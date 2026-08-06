@@ -1,5 +1,9 @@
 # flow
 
+[![CI](https://github.com/juststeveking/flow/actions/workflows/ci.yml/badge.svg)](https://github.com/juststeveking/flow/actions/workflows/ci.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/juststeveking/flow.svg)](https://pkg.go.dev/github.com/juststeveking/flow)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 A file-based, git-tracked operating system for running software development.
 
 Every unit of work is a markdown document with YAML frontmatter, living in a
@@ -127,16 +131,24 @@ project, not a fixture.
 ## Development
 
 ```sh
-make test       # go test ./...
-make vet        # go vet ./...
-gofmt -l ./internal ./cmd/flow ./cmd/flow-desktop
+make check      # gofmt, go vet, go test -race — what CI runs
+make test       # go test -race ./internal/... ./cmd/flow
+make vet
+make fmt        # gofmt -w
 ```
+
+The Go targets scope to `./internal/... ./cmd/flow` on purpose, so the Go
+surface builds without Node. See the note under *Desktop overlay*.
 
 ## Documents
 
 - [PLAN.md](PLAN.md) — the full methodology, state machine, and architecture.
 - [SCHEMA.md](SCHEMA.md) — the frozen frontmatter contract (schema version 1)
   that the parser implements against.
+- [AGENTS.md](AGENTS.md) — how coding agents work in this repo, and the gates
+  they must not walk through.
+- [CONTRIBUTING.md](CONTRIBUTING.md) — how to run the checks, and how changes
+  are proposed.
 - [.claude/agents/README.md](.claude/agents/README.md) — the five sub-agents,
   each of which proposes and stops at a gate.
 
