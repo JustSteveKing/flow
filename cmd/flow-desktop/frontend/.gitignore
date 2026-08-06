@@ -1,0 +1,5 @@
+node_modules/
+
+# Built overlay. go:embed'd by cmd/flow-desktop, so `make desktop-frontend`
+# must run before anything compiles that package.
+dist/

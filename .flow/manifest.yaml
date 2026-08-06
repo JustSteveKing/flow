@@ -1,0 +1,6 @@
+version: 1
+project: flow
+project_id: juststeveking/flow
+baseline:
+  mode: vendored
+id_prefix: adr
