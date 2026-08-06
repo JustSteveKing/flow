@@ -1,0 +1,22 @@
+# Build output
+/flow
+/bin/
+/dist/
+/build/
+
+# Go
+*.test
+*.out
+coverage.txt
+
+# Node
+node_modules/
+
+# Local Claude Code settings (machine-specific permissions)
+.claude/settings.local.json
+
+# Editor scratch
+*.swp
+*~
+.DS_Store
+*.tmp

@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: gofmt + vet
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: gofmt
+        run: |
+          unformatted="$(gofmt -l ./internal ./cmd/flow ./cmd/flow-desktop)"
+          if [ -n "$unformatted" ]; then
+            echo "These files need gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
+      # cmd/flow-desktop pulls in Wails and needs the GTK/WebKit toolchain, so
+      # vet the pure-Go surface here. The desktop binary is compiled in `desktop`.
+      - name: go vet
+        run: go vet ./internal/... ./cmd/flow
+
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build the CLI
+        run: go build -o bin/flow ./cmd/flow
+      - name: Test
+        run: go test -race ./internal/... ./cmd/flow
+
+  frontend:
+    name: overlay frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cmd/flow-desktop/frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: cmd/flow-desktop/frontend/package-lock.json
+      - run: npm ci
+      # `npm run build` is `tsc && vite build`, so this typechecks too.
+      - run: npm run build
+
+  desktop:
+    name: desktop binary (macOS)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: cmd/flow-desktop/frontend/package-lock.json
+      - name: Build the overlay frontend
+        working-directory: cmd/flow-desktop/frontend
+        run: npm ci && npm run build
+      - name: Build flow-desktop
+        run: go build -o bin/flow-desktop ./cmd/flow-desktop
