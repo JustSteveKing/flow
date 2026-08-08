@@ -17,6 +17,10 @@ jobs:
   lint:
     name: gofmt + vet
     runs-on: ubuntu-latest
+    # Bound every job: a wedged step (a stalled toolchain/module fetch, a hung
+    # native build) should fail fast with logs, not run to the 6h default and
+    # end up silently `cancelled`.
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -39,6 +43,7 @@ jobs:
   test:
     name: test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -57,6 +62,7 @@ jobs:
   frontend:
     name: overlay frontend
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: cmd/flow-desktop/frontend
@@ -74,6 +80,10 @@ jobs:
   desktop:
     name: desktop binary (macOS)
     runs-on: macos-latest
+    # Heaviest job: Wails links against the native WebKit/Cocoa frameworks via
+    # pkg-config, so it gets the longest budget. This is the job that hung and
+    # needed force-killing in the first run.
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
