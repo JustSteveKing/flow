@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io/fs"
 	"net/http"
+	"sort"
 )
 
 // Handler builds the in-process HTTP surface the desktop shell loads: JSON under
@@ -18,6 +19,7 @@ func (w *Workspace) Handler(static fs.FS) http.Handler {
 	mux.HandleFunc("/api/bet", w.handleBet)
 	mux.HandleFunc("/api/shelve", w.handleShelve)
 	mux.HandleFunc("/api/hill", w.handleHill)
+	mux.HandleFunc("/api/task/status", w.handleTaskStatus)
 	if static != nil {
 		mux.Handle("/", http.FileServer(http.FS(static)))
 	}
@@ -31,6 +33,22 @@ type Snapshot struct {
 	BettingTable  []BetRow         `json:"bettingTable"`
 	PortfolioHill []HillDTO        `json:"portfolioHill"`
 	Supersession  []EdgeDTO        `json:"supersession"`
+	Tasks         []TaskDTO        `json:"tasks"`
+}
+
+// TaskDTO is one card on the board: the machine status plus the checkbox-derived
+// progress fraction and its assignee and blockers.
+type TaskDTO struct {
+	ProjectID string   `json:"projectId"`
+	ID        string   `json:"id"`
+	Title     string   `json:"title"`
+	Status    string   `json:"status"`
+	Assignee  string   `json:"assignee"`
+	Done      int      `json:"done"`
+	Total     int      `json:"total"`
+	Depends   []string `json:"depends"`
+	Blockers  []string `json:"blockers"`
+	Tags      []string `json:"tags"`
 }
 
 type BetRow struct {
@@ -79,7 +97,33 @@ func (w *Workspace) snapshotDTO() Snapshot {
 			FromLayer: string(e.FromLayer), ToLayer: string(e.ToLayer),
 		})
 	}
+	s.Tasks = w.taskRows()
 	return s
+}
+
+// taskRows flattens every project's task set into board cards, ordered by project
+// then id so the board is deterministic.
+func (w *Workspace) taskRows() []TaskDTO {
+	sets := w.tasksSnapshot()
+	pids := make([]string, 0, len(sets))
+	for pid := range sets {
+		pids = append(pids, pid)
+	}
+	sort.Strings(pids)
+
+	var out []TaskDTO
+	for _, pid := range pids {
+		set := sets[pid]
+		for _, t := range set.All() {
+			done, total, _ := t.Progress()
+			out = append(out, TaskDTO{
+				ProjectID: pid, ID: t.ID, Title: t.Title, Status: string(t.Status),
+				Assignee: t.Assignee, Done: done, Total: total,
+				Depends: t.Depends, Blockers: set.Blockers(t.ID), Tags: t.Tags,
+			})
+		}
+	}
+	return out
 }
 
 func (w *Workspace) handleSnapshot(rw http.ResponseWriter, r *http.Request) {
@@ -91,6 +135,8 @@ type routeReq struct {
 	Lineage   string  `json:"lineage"`
 	ScopeID   string  `json:"scopeId"`
 	Hill      float64 `json:"hill"`
+	ID        string  `json:"id"`
+	Status    string  `json:"status"`
 }
 
 func (w *Workspace) handleBet(rw http.ResponseWriter, r *http.Request) {
@@ -115,6 +161,14 @@ func (w *Workspace) handleHill(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 	reply(rw, w.SetHill(req.ProjectID, req.Lineage, req.ScopeID, req.Hill))
+}
+
+func (w *Workspace) handleTaskStatus(rw http.ResponseWriter, r *http.Request) {
+	req, ok := decode(rw, r)
+	if !ok {
+		return
+	}
+	reply(rw, w.TransitionTaskStatus(req.ProjectID, req.ID, req.Status))
 }
 
 func decode(rw http.ResponseWriter, r *http.Request) (routeReq, bool) {

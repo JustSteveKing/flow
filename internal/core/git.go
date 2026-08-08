@@ -34,6 +34,17 @@ func Commit(root, message string, paths ...string) error {
 	return nil
 }
 
+// Push pushes the current branch to its upstream. A non-fast-forward rejection
+// surfaces as an error, which the task claim-commit path treats as "someone else
+// claimed first, re-read and reselect".
+func Push(root string) error {
+	out, err := exec.Command("git", "-C", root, "push").CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("git push: %v: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
 // Root returns the filesystem root for a project id in the aggregated index.
 func (i *Index) Root(projectID string) (string, bool) {
 	p, ok := i.Projects[projectID]

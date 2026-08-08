@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/juststeveking/flow/internal/core"
+	"github.com/juststeveking/flow/internal/task"
 	"github.com/juststeveking/flow/internal/watch"
 )
 
@@ -18,6 +19,7 @@ type Workspace struct {
 
 	mu       sync.RWMutex
 	index    *core.Index
+	tasks    map[string]*task.TaskSet  // by project id
 	watchers map[string]*watch.Watcher // by project id
 
 	debounce time.Duration
@@ -29,6 +31,7 @@ type Workspace struct {
 func NewWorkspace(reg *Registry, onUpdate func()) *Workspace {
 	return &Workspace{
 		registry: reg,
+		tasks:    map[string]*task.TaskSet{},
 		watchers: map[string]*watch.Watcher{},
 		debounce: 150 * time.Millisecond,
 		onUpdate: onUpdate,
@@ -50,9 +53,114 @@ func (w *Workspace) Reload() error {
 		projects = append(projects, p)
 	}
 	idx, _ := core.NewIndex(projects...)
+
+	// Tasks live per project in .flow/tasks/; they are not part of the aggregated
+	// core index. Load each registered root's set (files are truth, adr-0001).
+	tasks := map[string]*task.TaskSet{}
+	for _, root := range w.registry.Roots {
+		if set, err := task.LoadTasks(root.Path); err == nil {
+			tasks[root.ProjectID] = set
+		}
+	}
+
 	w.mu.Lock()
 	w.index = idx
+	w.tasks = tasks
 	w.mu.Unlock()
+	return nil
+}
+
+// tasksSnapshot returns the current per-project task sets. Reload swaps the map
+// wholesale, so the returned reference is safe to read without further locking.
+func (w *Workspace) tasksSnapshot() map[string]*task.TaskSet {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return w.tasks
+}
+
+// rootFor resolves a project id to its filesystem root via the registry, so task
+// routing works even for a project the core index dropped (for example a bad
+// manifest) but whose task files are still present.
+func (w *Workspace) rootFor(projectID string) (string, bool) {
+	for _, r := range w.registry.Roots {
+		if r.ProjectID == projectID {
+			return r.Path, true
+		}
+	}
+	return "", false
+}
+
+// TransitionTaskStatus moves a task to a new status through the same state machine
+// the CLI uses, then regenerates the board index. An illegal transition (or a move
+// to review with unticked criteria) is returned as an error, which the board turns
+// into a rejected drop with a toast rather than a silent change.
+func (w *Workspace) TransitionTaskStatus(projectID, id, toStatus string) error {
+	root, ok := w.rootFor(projectID)
+	if !ok {
+		return fmt.Errorf("unknown project %q", projectID)
+	}
+	set, err := task.LoadTasks(root) // re-read: files are truth
+	if err != nil {
+		return err
+	}
+	t := set.Get(id)
+	if t == nil {
+		return fmt.Errorf("no task %q", id)
+	}
+	to := task.Status(toStatus)
+	if !task.ValidStatus(to) {
+		return fmt.Errorf("illegal status %q", toStatus)
+	}
+	if to == task.StatusReview {
+		complete, err := task.ReviewComplete(t)
+		if err != nil {
+			return err
+		}
+		if !complete {
+			return fmt.Errorf("cannot move %s to review: acceptance criteria incomplete", id)
+		}
+	}
+	if err := task.TransitionTask(t, to); err != nil {
+		return err
+	}
+	if err := t.Touch(w.now()); err != nil {
+		return err
+	}
+
+	store := w.storeFor(projectID)
+	taskOp, err := task.Plan(root, t)
+	if err != nil {
+		return err
+	}
+	if err := store.Apply(taskOp); err != nil {
+		return err
+	}
+	idxOp, err := task.PlanIndex(root)
+	if err != nil {
+		return err
+	}
+	if err := store.Apply(idxOp); err != nil {
+		return err
+	}
+	if core.IsRepo(root) {
+		var paths []string
+		if !taskOp.NoChange() {
+			paths = append(paths, taskOp.AbsPath)
+		}
+		if !idxOp.NoChange() {
+			paths = append(paths, idxOp.AbsPath)
+		}
+		if len(paths) > 0 {
+			if err := core.Commit(root, "task status: "+id+" -> "+toStatus, paths...); err != nil {
+				return err
+			}
+		}
+	}
+
+	_ = w.Reload()
+	if w.onUpdate != nil {
+		w.onUpdate()
+	}
 	return nil
 }
 
