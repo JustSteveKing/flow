@@ -48,6 +48,7 @@ func newRoot() *cobra.Command {
 		cmdBuild(),
 		cmdArchive(),
 		cmdStatus(),
+		cmdTask(),
 	)
 	return root
 }

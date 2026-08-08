@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -89,6 +90,59 @@ func TestHTTPAPISnapshotAndBet(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("unknown project want 404, got %d", resp.StatusCode)
+	}
+}
+
+func TestTaskBoardSnapshotAndTransition(t *testing.T) {
+	base := t.TempDir()
+	root := filepath.Join(base, "a")
+	scaffoldProject(t, root, "acme/one")
+	// One todo task with a single unticked criterion.
+	if err := os.MkdirAll(filepath.Join(root, ".flow", "tasks"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	doc := "---\nid: T-001\ntitle: Board task\nstatus: todo\ncreated: 2026-08-01\nupdated: 2026-08-01\n---\n## Acceptance criteria\n- [ ] a\n"
+	if err := os.WriteFile(filepath.Join(root, ".flow", "tasks", "T-001-board-task.md"), []byte(doc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	reg := &Registry{Version: 1, Roots: []Root{{Path: root, ProjectID: "acme/one"}}}
+	ws := NewWorkspace(reg, nil)
+	if err := ws.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(ws.Handler(nil))
+	defer srv.Close()
+
+	var snap Snapshot
+	getJSON(t, srv.URL+"/api/snapshot", &snap)
+	if len(snap.Tasks) != 1 || snap.Tasks[0].ID != "T-001" || snap.Tasks[0].Status != "todo" {
+		t.Fatalf("task not in snapshot: %+v", snap.Tasks)
+	}
+	if snap.Tasks[0].Total != 1 || snap.Tasks[0].Done != 0 {
+		t.Fatalf("progress wrong: %+v", snap.Tasks[0])
+	}
+
+	// Legal drag todo -> doing.
+	if code := postJSON(t, srv.URL+"/api/task/status", `{"projectId":"acme/one","id":"T-001","status":"doing"}`); code != 200 {
+		t.Fatalf("legal transition returned %d", code)
+	}
+	getJSON(t, srv.URL+"/api/snapshot", &snap)
+	if snap.Tasks[0].Status != "doing" {
+		t.Fatalf("status not updated on board: %+v", snap.Tasks[0])
+	}
+
+	// Illegal drag doing -> done must be rejected (non-200) and leave state unchanged.
+	if code := postJSON(t, srv.URL+"/api/task/status", `{"projectId":"acme/one","id":"T-001","status":"done"}`); code == 200 {
+		t.Fatal("doing -> done should be rejected")
+	}
+	// Drag to review with an unticked criterion must also be rejected.
+	if code := postJSON(t, srv.URL+"/api/task/status", `{"projectId":"acme/one","id":"T-001","status":"review"}`); code == 200 {
+		t.Fatal("review with incomplete criteria should be rejected")
+	}
+	getJSON(t, srv.URL+"/api/snapshot", &snap)
+	if snap.Tasks[0].Status != "doing" {
+		t.Fatalf("rejected drops must not change status: %+v", snap.Tasks[0])
 	}
 }
 

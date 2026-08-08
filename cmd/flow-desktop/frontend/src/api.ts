@@ -30,11 +30,24 @@ export interface Edge {
   fromLayer: string;
   toLayer: string;
 }
+export interface TaskCard {
+  projectId: string;
+  id: string;
+  title: string;
+  status: string;
+  assignee: string;
+  done: number;
+  total: number;
+  depends: string[] | null;
+  blockers: string[] | null;
+  tags: string[] | null;
+}
 export interface Snapshot {
   projects: ProjectSummary[];
   bettingTable: BetRow[];
   portfolioHill: HillPoint[];
   supersession: Edge[];
+  tasks: TaskCard[];
 }
 
 export interface BetItem { lineage: string; appetite: string; placed: string }
@@ -93,6 +106,8 @@ export const api = {
   shelve: (projectId: string, lineage: string) => postJSON("/api/shelve", { projectId, lineage }),
   hill: (projectId: string, lineage: string, scopeId: string, hill: number) =>
     postJSON("/api/hill", { projectId, lineage, scopeId, hill }),
+  taskStatus: (projectId: string, id: string, status: string) =>
+    postJSON("/api/task/status", { projectId, id, status }),
 };
 
 export type DocRef = { project: string; kind: string; id: string; label: string };

@@ -36,12 +36,19 @@ func cmdInit() *cobra.Command {
 				filepath.Join(cwd, ".flow", "pitches"),
 				filepath.Join(cwd, ".flow", "specs"),
 				filepath.Join(cwd, ".flow", "cycles"),
+				filepath.Join(cwd, ".flow", "tasks"),
 				filepath.Join(cwd, ".flow", "decisions", "baseline"),
 				filepath.Join(cwd, ".flow", "decisions", "local"),
 			} {
 				if err := os.MkdirAll(d, 0o755); err != nil {
 					return err
 				}
+			}
+			if err := scaffoldTaskAgents(cwd); err != nil {
+				return err
+			}
+			if err := ensureGitattributes(cwd); err != nil {
+				return err
 			}
 			m := &core.Manifest{
 				Version: 1, Project: name, ProjectID: id,

@@ -5,6 +5,7 @@ import { Sidebar } from "./components/Sidebar";
 import { BettingTable } from "./components/BettingTable";
 import { PortfolioHill } from "./components/PortfolioHill";
 import { Supersession } from "./components/Supersession";
+import { TaskBoard } from "./components/TaskBoard";
 import { ProjectPanel } from "./components/ProjectPanel";
 import { DocModal } from "./components/DocModal";
 import { Toast } from "./components/Toast";
@@ -87,6 +88,10 @@ export default function App() {
           {selected && detail && (
             <ProjectPanel detail={detail} onClose={() => setSelected(null)} />
           )}
+
+          <Section title="Task board">
+            <TaskBoard tasks={snap?.tasks ?? []} />
+          </Section>
 
           <Section title="Unified betting table">
             <BettingTable rows={snap?.bettingTable ?? []} />
